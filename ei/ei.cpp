@@ -2,8 +2,8 @@
 #include "error_code.h"
 #include "segmentation.h"
 #include "SpectralClustering.h"
+#include "thread_pool.h"
 
-#include <iostream>
 #include <istream>
 #include <streambuf>
 #include <fstream>
@@ -11,6 +11,9 @@
 #include <stdlib.h>
 #include <set>
 #include <algorithm>
+#include <thread>
+#include <atomic>
+#include <mutex>
 
 using namespace std;
 
@@ -78,32 +81,68 @@ vector<vector<int>> process(vector<vector<string>>& data) {
     //     cout << field_type << endl;
     // }
 
+    SpendTime st;
     unordered_map<int, vector<double>> numberVectorMap{};
     unordered_map<int, unordered_map<double, vector<int>>> numberFreqMap{};
     unordered_map<int, vector<string>> labelVectorMap{}; // columnId -> labelVector
     unordered_map<int, unordered_map<string, vector<int>>> labelFreqMap{};
+    mutex mtx;
+    vector<future<void>> futures;
+    // atomic_int thread_num(thread::hardware_concurrency());
+    ThreadPool tp(thread::hardware_concurrency());
+    tp.init();
+    cout << "parsing ..." << endl;
     for (size_t j = 0; j < data[0].size(); j++) {
-        if (field_types[j] == FIELD_TYPE_NUMBER) {
-            vector<double> number{};
-            unordered_map<double, vector<int>> numberFreq{};
-            genHistogram(data, j, number, numberFreq);
-            numberVectorMap[j] = number;
-            numberFreqMap[j] = numberFreq;
-            continue;
-        }
-        vector<vector<string>> tokens{};
-        unordered_map<string, int64_t> tokenFreq{};
-        unordered_map<string, int32_t> labels = genTokensAndLabels(data, j, field_types, tokens, tokenFreq);
-        vector<string> labelVector{};
-        unordered_map<string, vector<int>> labelFreq{};
-        convertField2Label(tokens, labels, labelVector, labelFreq);
-        labelVectorMap[j] = labelVector;
-        labelFreqMap[j] = labelFreq;
+        // int remaining_token = thread_num.load();
+        // while (remaining_token <= 0) {
+        //     this_thread::sleep_for(chrono::seconds(1));
+        //     remaining_token = thread_num.load();
+        // };
+        // thread_num.fetch_sub(1);
+
+        futures.push_back(tp.submit([&](int j){
+            if (field_types[j] == FIELD_TYPE_NUMBER) {
+                vector<double> number{};
+                unordered_map<double, vector<int>> numberFreq{};
+                genHistogram(data, j, number, numberFreq);
+                mtx.lock();
+                numberVectorMap[j] = number;
+                numberFreqMap[j] = numberFreq;
+                // thread_num.fetch_add(1);
+                cout << "########## " << j << " " << numberVectorMap[j].size() << " " << numberFreqMap[j].size() << endl;
+                mtx.unlock();
+                return ;
+            }
+            vector<vector<string>> tokens{};
+            unordered_map<string, int64_t> tokenFreq{};
+            unordered_map<string, int32_t> labels = genTokensAndLabels(data, j, field_types, tokens, tokenFreq);
+            vector<string> labelVector{};
+            unordered_map<string, vector<int>> labelFreq{};
+            convertField2Label(tokens, labels, labelVector, labelFreq);
+            mtx.lock();
+            labelVectorMap[j] = labelVector;
+            labelFreqMap[j] = labelFreq;
+            // thread_num.fetch_add(1);
+            cout << "########## " << j << " " << labelVectorMap[j].size() << " " << labelFreqMap[j].size() << endl;
+            mtx.unlock();
+        }, j));
     }
+    for (auto &&future : futures) {
+        future.get();
+    }
+    tp.shutdown();
+    st.print("parse cost: ");
 
+    st.start();
+    cout << "generating correlation matrix ..." << endl;
     vector<vector<double>> correlation = genCorrelationMatrix(data[0].size(), numberVectorMap, numberFreqMap, labelVectorMap, labelFreqMap);
+    st.print("generate correlation matrix cost: ");
 
+    st.start();
+    cout << "spectral clustering ..." << endl;
     vector<vector<int>> clusters = doSpectralClustering(correlation);
+    st.print("spectral clustering cost: ");
+
     return clusters;
 }
 
@@ -221,10 +260,9 @@ FieldType ClassifyField::classify(string& field) {
 
     if (regex_match(field, pattern_number)) return FIELD_TYPE_NUMBER;
 
-    if (regex_match(to_wide_string(field), pattern_chinese_english)) {
-        if (regex_match(field, pattern_english)) return FIELD_TYPE_ENGLISH;
-        return FIELD_TYPE_CHINESE;
-    }
+    if (regex_match(to_wide_string(field), pattern_has_chinese)) return FIELD_TYPE_CHINESE;
+
+    if (regex_match(field, pattern_english)) return FIELD_TYPE_ENGLISH;
 
     return FIELD_TYPE_MIX;
 }
@@ -234,6 +272,11 @@ vector<vector<double>> genCorrelationMatrix(size_t numDims, unordered_map<int, v
     vector<vector<double>> correlation(numDims);
     for (size_t i = 0; i < numDims; i++) correlation[i].resize(numDims);
 
+    // vector<thread> ths;
+    // atomic_int thread_num(thread::hardware_concurrency());
+    vector<future<void>> futures;
+    ThreadPool tp(thread::hardware_concurrency());
+    tp.init();
     // sum(p(xy) * (p(x) + p(y)) / 2)
     for (size_t i = 0; i < numDims; i++) {
         for (size_t j = i; j < numDims; j++) {
@@ -241,24 +284,41 @@ vector<vector<double>> genCorrelationMatrix(size_t numDims, unordered_map<int, v
                 correlation[i][j] = 1;
                 continue;
             }
-            double sum = 0;
-            if (numberVectorMap.count(i) > 0) {
-                if (numberVectorMap.count(j) > 0) {
-                    sum = calcCorrelationSum(numberVectorMap[i], numberFreqMap[i], numberVectorMap[j], numberFreqMap[j]);
+            // int remaining_token = thread_num.load();
+            // while (remaining_token <= 0) {
+            //     this_thread::sleep_for(chrono::seconds(1));
+            //     remaining_token = thread_num.load();
+            // };
+            // thread_num.fetch_sub(1);
+
+            futures.push_back(tp.submit([&](int i, int j){
+                double sum = 0;
+                if (numberVectorMap.count(i) > 0) {
+                    if (numberVectorMap.count(j) > 0) {
+                        sum = calcCorrelationSum(numberVectorMap[i], numberFreqMap[i], numberVectorMap[j], numberFreqMap[j]);
+                    } else {
+                        sum = calcCorrelationSum(numberVectorMap[i], numberFreqMap[i], labelVectorMap[j], labelFreqMap[j]);
+                    }
                 } else {
-                    sum = calcCorrelationSum(numberVectorMap[i], numberFreqMap[i], labelVectorMap[j], labelFreqMap[j]);
+                    if (numberVectorMap.count(j) > 0) {
+                        sum = calcCorrelationSum(labelVectorMap[i], labelFreqMap[i], numberVectorMap[j], numberFreqMap[j]);
+                    } else {
+                        sum = calcCorrelationSum(labelVectorMap[i], labelFreqMap[i], labelVectorMap[j], labelFreqMap[j]);
+                    }
                 }
-            } else {
-                if (numberVectorMap.count(j) > 0) {
-                    sum = calcCorrelationSum(labelVectorMap[i], labelFreqMap[i], numberVectorMap[j], numberFreqMap[j]);
-                } else {
-                    sum = calcCorrelationSum(labelVectorMap[i], labelFreqMap[i], labelVectorMap[j], labelFreqMap[j]);
-                }
-            }
-            correlation[i][j] = sum;
-            correlation[j][i] = sum;
+                correlation[i][j] = sum;
+                correlation[j][i] = sum;
+                // thread_num.fetch_add(1);
+            }, i, j));
         }
     }
+    // for (auto &&th : ths) {
+    //     if (th.joinable()) th.join();
+    // }
+    for (auto &&future : futures) {
+        future.get();
+    }
+    tp.shutdown();
 
     return correlation;
 }

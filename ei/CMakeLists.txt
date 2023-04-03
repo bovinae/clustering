@@ -18,10 +18,10 @@ if(NOT CMAKE_BUILD_TYPE)
       FORCE)
 endif(NOT CMAKE_BUILD_TYPE)
 
-link_directories(${CMAKE_SOURCE_DIR}/../lib/build/lib/)
+link_directories(${CMAKE_SOURCE_DIR}/../lib/build/lib/ /usr/local/lib/ /usr/lib64/)
 
 aux_source_directory(. DIR_SRCS)
 
 add_executable(ei ${DIR_SRCS})
 add_definitions(-std=c++11)
-target_link_libraries(ei clustering)
+target_link_libraries(ei clustering profiler pthread)

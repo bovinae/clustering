@@ -10,11 +10,13 @@
 #include <codecvt>
 #include <unordered_map>
 #include <type_traits>
+#include <chrono>
+#include <iostream>
 
 using namespace std;
 
-const int HISTOGRAM_BAR_NUM = 100;
-const int TOPK = 1000;
+const int HISTOGRAM_BAR_NUM = 1000;
+const int TOPK = 10000;
 
 enum FieldType {
     FIELD_TYPE_MIX = 1,
@@ -43,6 +45,24 @@ public:
     ClassifyField(/* args */);
 
     FieldType classify(string& field);
+};
+
+/*1、打印耗时，取变量构造函数与析构函数的时间差，单位ms*/
+class SpendTime
+{
+public:
+    SpendTime() : _curTimePoint(chrono::steady_clock::now()) {}
+    void start() {
+        _curTimePoint = chrono::steady_clock::now();
+    }
+    void print(const string& msg) {
+        auto curTime = chrono::steady_clock::now();
+        auto duration = chrono::duration_cast<chrono::milliseconds>(curTime - _curTimePoint);
+        cout << msg << duration.count() / double(1000) << "s" << endl;
+    }
+
+private:
+    chrono::steady_clock::time_point _curTimePoint;
 };
 
 // convert string to wstring
