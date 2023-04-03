@@ -1,6 +1,7 @@
 #include "ei.h"
 #include "error_code.h"
 #include "segmentation.h"
+#include "SpectralClustering.h"
 
 #include <iostream>
 #include <istream>
@@ -26,8 +27,14 @@ int main(int argc, char const *argv[]) {
     //     }
     // }
     
-    parse(data);
-    
+    vector<vector<int>> clusters = process(data);
+    // output clustered items
+    // items are ordered according to distance from cluster centre
+    for (unsigned int i=0; i < clusters.size(); i++) {
+        std::cout << "Cluster " << i << ": " << "Item ";
+        std::copy(clusters[i].begin(), clusters[i].end(), std::ostream_iterator<int>(std::cout, ", "));
+        std::cout << std::endl;
+    }
     return 0;
 }
 
@@ -64,51 +71,68 @@ errorcode read_csv(string file_name, vector<vector<string>>& data) {
     return E_OK;
 }
 
-void parse(vector<vector<string>>& data) {
+vector<vector<int>> process(vector<vector<string>>& data) {
     vector<FieldType> field_types = get_field_type(data);
 
-    for (auto &&field_type : field_types) {
-        cout << field_type << endl;
-    }
+    // for (auto &&field_type : field_types) {
+    //     cout << field_type << endl;
+    // }
 
-    unordered_map<int, vector<double>> histogram;
+    unordered_map<int, vector<double>> numberVectorMap{};
+    unordered_map<int, unordered_map<double, vector<int>>> numberFreqMap{};
     unordered_map<int, vector<string>> labelVectorMap{}; // columnId -> labelVector
-    unordered_map<int, unordered_map<string, int32_t>> labelFreqMap{};
+    unordered_map<int, unordered_map<string, vector<int>>> labelFreqMap{};
     for (size_t j = 0; j < data[0].size(); j++) {
         if (field_types[j] == FIELD_TYPE_NUMBER) {
-            histogram[j] = genHistogram(data, j);
+            vector<double> number{};
+            unordered_map<double, vector<int>> numberFreq{};
+            genHistogram(data, j, number, numberFreq);
+            numberVectorMap[j] = number;
+            numberFreqMap[j] = numberFreq;
             continue;
         }
         vector<vector<string>> tokens{};
         unordered_map<string, int64_t> tokenFreq{};
         unordered_map<string, int32_t> labels = genTokensAndLabels(data, j, field_types, tokens, tokenFreq);
         vector<string> labelVector{};
-        unordered_map<string, int32_t> labelMap{};
+        unordered_map<string, vector<int>> labelMap{};
         convertField2Label(tokens, labels, labelVector, labelMap);
         labelVectorMap[j] = labelVector;
         labelFreqMap[j] = labelMap;
     }
+
+    vector<vector<double>> correlation = genCorrelationMatrix(data[0].size(), numberVectorMap, numberFreqMap, labelVectorMap, labelFreqMap);
+
+    vector<vector<int>> clusters = doSpectralClustering(correlation);
+    return clusters;
 }
 
-vector<double> genHistogram(vector<vector<string>>& data, int j) {
-    vector<double> number{};
+void genHistogram(vector<vector<string>>& data, int j, vector<double>& number, unordered_map<double, vector<int>>& numberFreq) {
+    vector<double> histogram{};
     for (size_t i = 0; i < data.size(); i++) {
         number.push_back(atof(data[i][j].c_str()));
     }
-    sort(number.begin(), number.end(), [](double t1, double t2) {return t1 < t2;});
-    if (number.size() <= HISTOGRAM_BAR_NUM) return number;
+    vector<double> sorted_number = number;
+    sort(sorted_number.begin(), sorted_number.end(), [](double t1, double t2) {return t1 < t2;});
+    if (sorted_number.size() <= HISTOGRAM_BAR_NUM) {
+        histogram = sorted_number;
+        return ;
+    }
 
-    vector<double> histogram(HISTOGRAM_BAR_NUM);
-    int quotient = number.size() / HISTOGRAM_BAR_NUM;
-    int remainder = number.size() % HISTOGRAM_BAR_NUM;
-    for (size_t i = 0; i < number.size(); i += quotient) {
-        histogram.push_back(number[i]);
+    int quotient = sorted_number.size() / HISTOGRAM_BAR_NUM;
+    int remainder = sorted_number.size() % HISTOGRAM_BAR_NUM;
+    for (size_t i = 0; i < sorted_number.size(); i += quotient) {
+        histogram.push_back(sorted_number[i]);
         if (remainder > 0) {
             i++;
             remainder--;
         }
     }
-    return histogram;
+    for (size_t i = 0; i < number.size(); i++) {
+        auto it = lower_bound(histogram.begin(), histogram.end(), number[i]);
+        number[i] = *it;
+        numberFreq[number[i]].push_back(i);
+    }
 }
 
 unordered_map<string, int32_t> genTokensAndLabels(const vector<vector<string>>& data, int j, const vector<FieldType>& field_types, vector<vector<string>>& tokens, unordered_map<string, int64_t>& tokenFreq) {
@@ -128,7 +152,6 @@ unordered_map<string, int32_t> genTokensAndLabels(const vector<vector<string>>& 
         }
     } else if (field_types[j] == FIELD_TYPE_MIX) {
         SegmentByDelimiter seg_mix;
-        seg_mix.SetDelimiter("|");
         for (size_t i = 0; i < data.size(); i++) {
             vector<string> words = seg_mix(data[i][j]);
             tokens.push_back(words);
@@ -148,7 +171,7 @@ unordered_map<string, int32_t> genTokensAndLabels(const vector<vector<string>>& 
     return labels;
 }
 
-void convertField2Label(const vector<vector<string>>& tokens, unordered_map<string, int32_t>& labels, vector<string>& labelVector, unordered_map<string, int32_t>& labelMap) {
+void convertField2Label(const vector<vector<string>>& tokens, unordered_map<string, int32_t>& labels, vector<string>& labelVector, unordered_map<string, vector<int>>& labelMap) {
     for (size_t i = 0; i < tokens.size(); i++) {
         vector<int32_t> tmp{};
         for (size_t j = 0; j < tokens[i].size(); j++) {
@@ -160,7 +183,7 @@ void convertField2Label(const vector<vector<string>>& tokens, unordered_map<stri
         string label{to_string(tmp[0])};
         for_each (tmp.begin()+1, tmp.end(), [&](int32_t i) {label += "_" + to_string(i);});
         labelVector.push_back(label);
-        labelMap[label]++;
+        labelMap[label].push_back(i);
     }
 }
 
@@ -197,4 +220,94 @@ FieldType ClassifyField::classify(string& field) {
     }
 
     return FIELD_TYPE_MIX;
+}
+
+vector<vector<double>> genCorrelationMatrix(size_t numDims, unordered_map<int, vector<double>>& numberVectorMap, unordered_map<int, unordered_map<double, vector<int>>>& numberFreqMap, 
+                                            unordered_map<int, vector<string>>& labelVectorMap, unordered_map<int, unordered_map<string, vector<int>>>& labelFreqMap) {
+    vector<vector<double>> correlation(numDims);
+    for (size_t i = 0; i < numDims; i++) correlation[i].resize(numDims);
+
+    // sum(p(xy) * (p(x) + p(y)) / 2)
+    for (size_t i = 0; i < numDims; i++) {
+        for (size_t j = i; j < numDims; j++) {
+            if (i == j) {
+                correlation[i][j] = 1;
+                continue;
+            }
+            double sum = 0;
+            if (numberVectorMap.count(i) > 0) {
+                if (numberVectorMap.count(j) > 0) {
+                    sum = calcCorrelationSum(numberVectorMap[i], numberFreqMap[i], numberVectorMap[j], numberFreqMap[j]);
+                } else {
+                    sum = calcCorrelationSum(numberVectorMap[i], numberFreqMap[i], labelVectorMap[j], labelFreqMap[j]);
+                }
+            } else {
+                if (numberVectorMap.count(j) > 0) {
+                    sum = calcCorrelationSum(labelVectorMap[i], labelFreqMap[i], numberVectorMap[j], numberFreqMap[j]);
+                } else {
+                    sum = calcCorrelationSum(labelVectorMap[i], labelFreqMap[i], labelVectorMap[j], labelFreqMap[j]);
+                }
+            }
+            correlation[i][j] = sum;
+            correlation[j][i] = sum;
+        }
+    }
+
+    return correlation;
+}
+
+template<typename T, typename U>
+double calcCorrelationSum(vector<T>& v1, unordered_map<T, vector<int>>& f1, vector<U>& v2, unordered_map<U, vector<int>>& f2) {
+    unordered_map<string, int> visited;
+    double sum = 0;
+    for (size_t k = 0; k < v1.size(); k++) {
+        string visited_key = getVisitedKey(v1[k], v2[k]);
+        if (visited.count(visited_key) > 0) continue;
+
+        // 行号都是有序的
+        vector<int>& rows_i = f1[v1[k]];
+        vector<int>& rows_j = f2[v2[k]];
+        vector<int> result;
+        set_intersection(rows_i.begin(), rows_i.end(), rows_j.begin(), rows_j.end(), back_inserter(result));
+        double p_xy = result.size() / double(v1.size());
+        double p_x_and_y = (rows_i.size() + rows_j.size()) / double(v1.size());
+        sum += p_xy * p_x_and_y / 2;
+        visited[visited_key]++;
+    }
+    return sum;
+}
+
+template<typename T, typename U>
+string getVisitedKey(T& v1, U& v2) {
+    return tostring(v1) + "_" + tostring(v2);
+}
+
+vector<vector<int> > doSpectralClustering(vector<vector<double>>& correlation) {
+    size_t numDims = correlation.size();
+
+    Eigen::MatrixXd m = Eigen::MatrixXd::Zero(numDims, numDims);
+    for (size_t i = 0; i < numDims; i++) {
+        for (size_t j = i; j < numDims; j++) {
+            m(i, j) = correlation[i][j];
+            m(j, i) = correlation[i][j];
+        }
+    }
+
+    // do eigenvalue decomposition
+    SpectralClustering* c = new SpectralClustering(m, numDims);
+
+    // whether to use auto-tuning spectral clustering or kmeans spectral clustering
+    bool autotune = true;
+
+    vector<vector<int> > clusters;
+    if (autotune) {
+        // auto-tuning clustering
+        clusters = c->clusterRotate();
+    } else {
+        // how many clusters you want
+        int numClusters = 5;
+        clusters = c->clusterKmeans(numClusters);
+    }
+
+    return clusters;
 }

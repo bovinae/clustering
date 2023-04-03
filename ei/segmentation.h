@@ -36,23 +36,30 @@ private:
 class SegmentByDelimiter // 使用空格进行分词
 {
 public:
-    SegmentByDelimiter(){}
-    void SetDelimiter(const string& delimiter) {
-        _delimiter = delimiter;
+    SegmentByDelimiter(const string& special_chars = "!#$%&()*+-/:;<=>?@[]\\^_`{}|~"){
+        for (auto &&c : special_chars) _delimiters.insert(c);
     }
 
     vector<string> operator()(string str) {
-        size_t pos = 0;
+        int32_t pre_pos = -1;
         vector<string> words{};
-        while ((pos = str.find(_delimiter)) != string::npos) {
-            words.push_back(str.substr(0, pos));
-            str.erase(0, pos + _delimiter.size());
+        size_t i = 0;
+        for (; i < str.size(); i++) {
+            if (_delimiters.count(str[i]) == 0) {
+                if (pre_pos == -1) pre_pos = i;
+                continue;
+            }
+            if (pre_pos > 0) {
+                words.push_back(str.substr(pre_pos, i - pre_pos));
+                pre_pos = -1;
+            }
         }
+        if (pre_pos > 0) words.push_back(str.substr(pre_pos, i - pre_pos));
         return words;
     }
 
 private:
-    string _delimiter = " ";
+    unordered_set<char> _delimiters;
 };
 
 #endif
