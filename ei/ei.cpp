@@ -95,10 +95,10 @@ vector<vector<int>> process(vector<vector<string>>& data) {
         unordered_map<string, int64_t> tokenFreq{};
         unordered_map<string, int32_t> labels = genTokensAndLabels(data, j, field_types, tokens, tokenFreq);
         vector<string> labelVector{};
-        unordered_map<string, vector<int>> labelMap{};
-        convertField2Label(tokens, labels, labelVector, labelMap);
+        unordered_map<string, vector<int>> labelFreq{};
+        convertField2Label(tokens, labels, labelVector, labelFreq);
         labelVectorMap[j] = labelVector;
-        labelFreqMap[j] = labelMap;
+        labelFreqMap[j] = labelFreq;
     }
 
     vector<vector<double>> correlation = genCorrelationMatrix(data[0].size(), numberVectorMap, numberFreqMap, labelVectorMap, labelFreqMap);
@@ -113,15 +113,17 @@ void genHistogram(vector<vector<string>>& data, int j, vector<double>& number, u
         number.push_back(atof(data[i][j].c_str()));
     }
     vector<double> sorted_number = number;
-    sort(sorted_number.begin(), sorted_number.end(), [](double t1, double t2) {return t1 < t2;});
-    if (sorted_number.size() <= HISTOGRAM_BAR_NUM) {
+    stable_sort(sorted_number.begin(), sorted_number.end(), [](double t1, double t2) {return t1 < t2;});
+    auto it = unique(sorted_number.begin(), sorted_number.end());
+    size_t unique_len = it - sorted_number.begin();
+    if (unique_len <= HISTOGRAM_BAR_NUM) {
         histogram = sorted_number;
         return ;
     }
 
-    int quotient = sorted_number.size() / HISTOGRAM_BAR_NUM;
-    int remainder = sorted_number.size() % HISTOGRAM_BAR_NUM;
-    for (size_t i = 0; i < sorted_number.size(); i += quotient) {
+    int quotient = unique_len / HISTOGRAM_BAR_NUM;
+    int remainder = unique_len % HISTOGRAM_BAR_NUM;
+    for (size_t i = 0; i < unique_len; i += quotient) {
         histogram.push_back(sorted_number[i]);
         if (remainder > 0) {
             i++;
@@ -129,7 +131,8 @@ void genHistogram(vector<vector<string>>& data, int j, vector<double>& number, u
         }
     }
     for (size_t i = 0; i < number.size(); i++) {
-        auto it = lower_bound(histogram.begin(), histogram.end(), number[i]);
+        auto it = upper_bound(histogram.begin(), histogram.end(), number[i]);
+        it--;
         number[i] = *it;
         numberFreq[number[i]].push_back(i);
     }
@@ -163,7 +166,7 @@ unordered_map<string, int32_t> genTokensAndLabels(const vector<vector<string>>& 
     for (auto &&token : tokenFreq) {
         tc.push_back(TokenCount(token.second, token.first));
     }
-    sort(tc.begin(), tc.end(), [](TokenCount t1, TokenCount t2) {return t1._count > t2._count;});
+    stable_sort(tc.begin(), tc.end(), [](TokenCount t1, TokenCount t2) {return t1._count > t2._count;});
     unordered_map<string, int32_t> labels{};
     for (size_t i = 0; i < TOPK && i < tc.size(); i++) {
         labels[tc[i]._token] = i+1;
@@ -171,19 +174,23 @@ unordered_map<string, int32_t> genTokensAndLabels(const vector<vector<string>>& 
     return labels;
 }
 
-void convertField2Label(const vector<vector<string>>& tokens, unordered_map<string, int32_t>& labels, vector<string>& labelVector, unordered_map<string, vector<int>>& labelMap) {
+void convertField2Label(const vector<vector<string>>& tokens, unordered_map<string, int32_t>& labels, vector<string>& labelVector, unordered_map<string, vector<int>>& labelFreq) {
     for (size_t i = 0; i < tokens.size(); i++) {
         vector<int32_t> tmp{};
         for (size_t j = 0; j < tokens[i].size(); j++) {
             if (labels.count(tokens[i][j]) > 0) tmp.push_back(labels[tokens[i][j]]);
         }
-        if (tmp.size() == 0) continue;
+        if (tmp.size() == 0) {
+            labelVector.push_back({});
+            labelFreq[{}].resize(0);
+            continue;
+        }
 
-        sort(tmp.begin(), tmp.end(), [](int32_t t1, int32_t t2) {return t1 < t2;});
+        stable_sort(tmp.begin(), tmp.end(), [](int32_t t1, int32_t t2) {return t1 < t2;});
         string label{to_string(tmp[0])};
         for_each (tmp.begin()+1, tmp.end(), [&](int32_t i) {label += "_" + to_string(i);});
         labelVector.push_back(label);
-        labelMap[label].push_back(i);
+        labelFreq[label].push_back(i);
     }
 }
 

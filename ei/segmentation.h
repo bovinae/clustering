@@ -36,7 +36,8 @@ private:
 class SegmentByDelimiter // 使用空格进行分词
 {
 public:
-    SegmentByDelimiter(const string& special_chars = "!#$%&()*+-/:;<=>?@[]\\^_`{}|~"){
+    SegmentByDelimiter(){
+        const string& special_chars = "!#$%&()+;<=>?@[]\\^`{}|~"; // "!#$%&()*+-/:;<=>?@[]\\^_`{}|~"
         for (auto &&c : special_chars) _delimiters.insert(c);
     }
 
@@ -49,12 +50,12 @@ public:
                 if (pre_pos == -1) pre_pos = i;
                 continue;
             }
-            if (pre_pos > 0) {
+            if (pre_pos >= 0) {
                 words.push_back(str.substr(pre_pos, i - pre_pos));
                 pre_pos = -1;
             }
         }
-        if (pre_pos > 0) words.push_back(str.substr(pre_pos, i - pre_pos));
+        if (pre_pos >= 0) words.push_back(str.substr(pre_pos, i - pre_pos));
         return words;
     }
 
