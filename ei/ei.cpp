@@ -17,9 +17,19 @@
 
 using namespace std;
 
+
+int HISTOGRAM_BAR_NUM = 1000;
+int TOPK = 10000;
+
 int main(int argc, char const *argv[]) {
+    for (int i = 1; i < argc; i++) {
+        if (i == 1) HISTOGRAM_BAR_NUM = atoi(argv[i]);
+        else if (i == 2) TOPK = atoi(argv[i]);
+    }
+
+    vector<string> header;
     vector<vector<string>> data;
-    errorcode err_code = read_csv("./test.csv", data);
+    errorcode err_code = read_csv("./test.csv", header, data);
     if (err_code != E_OK) {
         return err_code;
     }
@@ -35,13 +45,16 @@ int main(int argc, char const *argv[]) {
     // items are ordered according to distance from cluster centre
     for (unsigned int i=0; i < clusters.size(); i++) {
         std::cout << "Cluster " << i << ": " << "Item ";
-        std::copy(clusters[i].begin(), clusters[i].end(), std::ostream_iterator<int>(std::cout, ", "));
+        for (auto it = clusters[i].begin(); it != clusters[i].end(); it++) {
+            cout << header[*it] << ", ";
+        }
+        // std::copy(clusters[i].begin(), clusters[i].end(), std::ostream_iterator<int>(std::cout, ", "));
         std::cout << std::endl;
     }
     return 0;
 }
 
-errorcode read_csv(string file_name, vector<vector<string>>& data) {
+errorcode read_csv(string file_name, vector<string>& header, vector<vector<string>>& data) {
     ifstream csv_data(file_name, ios::in);
     if (!csv_data.is_open()) {
         cout << "Error: opening file fail" << endl;
@@ -50,12 +63,15 @@ errorcode read_csv(string file_name, vector<vector<string>>& data) {
 
     // 读取标题行
     string line;
-    getline(csv_data, line);
-    // cout << line << endl;
-
-    istringstream sin;         //将整行字符串line读入到字符串istringstream中
-    vector<string> row;
     string field;
+    istringstream sin;         //将整行字符串line读入到字符串istringstream中
+    getline(csv_data, line);
+    sin.str(line);
+    while (getline(sin, field, ',')) {
+        header.push_back(field);
+    }
+
+    vector<string> row;
     // 读取数据
     while (getline(csv_data, line)) {
         sin.clear();
@@ -109,7 +125,7 @@ vector<vector<int>> process(vector<vector<string>>& data) {
                 numberVectorMap[j] = number;
                 numberFreqMap[j] = numberFreq;
                 // thread_num.fetch_add(1);
-                cout << "########## " << j << " " << numberVectorMap[j].size() << " " << numberFreqMap[j].size() << endl;
+                // cout << "########## " << j << " " << numberVectorMap[j].size() << " " << numberFreqMap[j].size() << endl;
                 mtx.unlock();
                 return ;
             }
@@ -123,7 +139,7 @@ vector<vector<int>> process(vector<vector<string>>& data) {
             labelVectorMap[j] = labelVector;
             labelFreqMap[j] = labelFreq;
             // thread_num.fetch_add(1);
-            cout << "########## " << j << " " << labelVectorMap[j].size() << " " << labelFreqMap[j].size() << endl;
+            // cout << "########## " << j << " " << labelVectorMap[j].size() << " " << labelFreqMap[j].size() << endl;
             mtx.unlock();
         }, j));
     }

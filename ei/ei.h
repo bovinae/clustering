@@ -15,9 +15,6 @@
 
 using namespace std;
 
-const int HISTOGRAM_BAR_NUM = 1000;
-const int TOPK = 10000;
-
 enum FieldType {
     FIELD_TYPE_MIX = 1,
     FIELD_TYPE_CHINESE,
@@ -47,7 +44,7 @@ public:
     FieldType classify(string& field);
 };
 
-/*1、打印耗时，取变量构造函数与析构函数的时间差，单位ms*/
+/*1銆佹墦鍗拌�楁椂锛屽彇鍙橀噺鏋勯�犲嚱鏁颁笌鏋愭瀯鍑芥暟鐨勬椂闂村樊锛屽崟浣峬s*/
 class SpendTime
 {
 public:
@@ -89,7 +86,7 @@ tostring(T d) {
     return to_string(d);
 }
 
-errorcode read_csv(string file_name, vector<vector<string>>& data);
+errorcode read_csv(string file_name, vector<string>& header, vector<vector<string>>& data);
 
 vector<vector<int>> process(vector<vector<string>>& data);
 
