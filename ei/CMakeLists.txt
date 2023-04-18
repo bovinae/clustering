@@ -22,6 +22,6 @@ link_directories(${CMAKE_SOURCE_DIR}/../lib/build/lib/ /usr/local/lib/ /usr/lib6
 
 # aux_source_directory(. DIR_SRCS)
 
-add_executable(ei ei.cpp error_code.c) # ${DIR_SRCS}
+add_executable(ei ei.cpp error_code.cpp) # ${DIR_SRCS}
 add_definitions(-std=c++11)
 target_link_libraries(ei clustering ghttpd profiler pthread)

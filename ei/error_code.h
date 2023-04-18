@@ -1,7 +1,7 @@
 #ifndef _ERROR_CODE_H
 #define _ERROR_CODE_H
 
-    // basic error code
+// basic error code
 enum errorcode{
     E_OK,             ///< 成功
     E_FAIL,           ///< 一般性错误
