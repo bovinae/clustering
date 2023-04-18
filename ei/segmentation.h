@@ -6,7 +6,9 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <set>
 
+using namespace std;
 using std::cout;
 using std::endl;
 using std::string;
@@ -18,16 +20,33 @@ const char * const USER_DICT_PATH = "/data/linwei/clustering/cppjieba/dict/user.
 const char* const IDF_PATH = "/data/linwei/clustering/cppjieba/dict/idf.utf8";//IDF路径
 const char* const STOP_WORD_PATH = "/data/linwei/clustering/cppjieba/dict/stop_words.utf8";//停用词路径
 
+
+std::string& trim(std::string &s) {
+    if (s.empty()) {
+        return s;
+    }
+ 
+    s.erase(0,s.find_first_not_of(" "));
+    s.erase(s.find_last_not_of(" ") + 1);
+    return s;
+}
+
 class SegmentChinese // 使用结巴分词库进行分词
 {
 public:
     SegmentChinese()
         : _jieba(DICT_PATH, HMM_PATH, USER_DICT_PATH,IDF_PATH,STOP_WORD_PATH){}
 
-    vector<string> operator()(const string str) {
-        vector<string> words{};
+    void segment(const string& str, vector<string>& words) {
         _jieba.Cut(str, words); // FullSegment
-        return words;
+        for (auto it = words.begin(); it != words.end(); ) {
+            // if (it->size() == 0 || trim(*it).size() == 0 || *it == "*" || *it == "\"") {
+            if (it->length() <= 3 || trim(*it).length() <= 3) {
+                it = words.erase(it);
+            } else {
+                it++;
+            }
+        }
     }
 private:
     cppjieba::Jieba _jieba;
@@ -41,9 +60,8 @@ public:
         for (auto &&c : special_chars) _delimiters.insert(c);
     }
 
-    vector<string> operator()(string str) {
+    void segment(const string& str, vector<string>& words) {
         int32_t pre_pos = -1;
-        vector<string> words{};
         size_t i = 0;
         for (; i < str.size(); i++) {
             if (_delimiters.count(str[i]) == 0) {
@@ -56,7 +74,6 @@ public:
             }
         }
         if (pre_pos >= 0) words.push_back(str.substr(pre_pos, i - pre_pos));
-        return words;
     }
 
 private:

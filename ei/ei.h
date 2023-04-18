@@ -16,8 +16,10 @@
 using namespace std;
 
 enum FieldType {
-    FIELD_TYPE_MIX = 1,
+    FIELD_TYPE_NAME = 1,
+    FIELD_TYPE_PHONE,
     FIELD_TYPE_CHINESE,
+    FIELD_TYPE_MIX,
     FIELD_TYPE_ENGLISH,
     FIELD_TYPE_NUMBER,
     FIELD_TYPE_EMPTY,
@@ -38,10 +40,16 @@ private:
     wregex pattern_chinese_english;
     wregex pattern_has_chinese;
     regex pattern_english;
+
+    regex pattern_time;
+    wregex pattern_mask_name;
+    regex pattern_mask_phone;
 public:
     ClassifyField(/* args */);
 
-    FieldType classify(string& field);
+    FieldType classify(const string& field);
+    bool is_mask_name(const string& field) const;
+    bool is_mask_phone(const string& field) const;
 };
 
 /*1、打印耗时，取变量构造函数与析构函数的时间差，单位ms*/
@@ -86,27 +94,60 @@ tostring(T d) {
     return to_string(d);
 }
 
+vector<string> split(const string& in, const string& delim) {
+    vector<string> ret;
+    try {
+        regex re{delim};
+        return vector<string>{
+                sregex_token_iterator(in.begin(), in.end(), re, -1),
+                sregex_token_iterator()
+           };      
+    }
+    catch(const std::exception& e) {
+        cout<<"error:"<<e.what()<<std::endl;
+    }
+    return ret;
+}
+
+bool contains(const string& v1, const string& v2) {
+    if (v1.size() == 0 || v2.size() == 0) return false;
+
+    if (v1.find(v2) != string::npos) return true;
+    if (v2.find(v1) != string::npos) return true;
+    if (v1.size() > v2.size()) {
+        vector<string> tokens = split(v2, "_");
+        for (auto &&token : tokens) {
+            if (v1.find(token) != string::npos) return true;
+        }
+    } else {
+        vector<string> tokens = split(v1, "_");
+        for (auto &&token : tokens) {
+            if (v2.find(token) != string::npos) return true;
+        }
+    }
+    return false;
+}
+
 errorcode read_csv(string file_name, vector<string>& header, vector<vector<string>>& data);
 
-vector<vector<int>> process(vector<vector<string>>& data);
+vector<vector<int>> process(const vector<vector<string>>& data);
 
-vector<FieldType> get_field_type(vector<vector<string>>& data);
+bool not_histogram(int j);
 
-void genHistogram(vector<vector<string>>& data, int j, vector<double>& number, unordered_map<double, vector<int>>& numberFreq);
+void origin_normalize_invert_index(const vector<vector<string>>& data, int j, vector<string>& label_vector, unordered_map<string, vector<int>>& label_invert_index);
 
-unordered_map<string, int32_t> genTokensAndLabels(const vector<vector<string>>& data, int j, const vector<FieldType>& field_types, vector<vector<string>>& tokens, unordered_map<string, int64_t>& tokenFreq);
+void genHistogram(const vector<vector<string>>& data, int j, vector<string>& label_vector, unordered_map<string, vector<int>>& label_invert_index);
 
-void convertField2Label(const vector<vector<string>>& tokens, unordered_map<string, int32_t>& labels, vector<string>& labelVector, unordered_map<string, vector<int>>& labelMap);
+void convertField2Label(const vector<vector<string>>& tokens, unordered_map<string, int64_t>& labels, vector<string>& label_vector, unordered_map<string, vector<int>>& label_invert_index);
 
-vector<vector<double>> genCorrelationMatrix(size_t col, unordered_map<int, vector<double>>& numberVectorMap, unordered_map<int, unordered_map<double, vector<int>>>& numberFreqMap, 
-                                            unordered_map<int, vector<string>>& labelVectorMap, unordered_map<int, unordered_map<string, vector<int>>>& labelFreqMap);
+vector<vector<double>> genCorrelationMatrix(const vector<vector<string>>& data, unordered_map<int, vector<string>>& labelVectorMap, unordered_map<int, unordered_map<string, vector<int>>>& labelFreqMap);
                                             
 vector<vector<int> > doSpectralClustering(vector<vector<double>>& correlation);
 
-template<typename T, typename U>
-double calcCorrelationSum(vector<T>& v1, unordered_map<T, vector<int>>& f1, vector<U>& v2, unordered_map<U, vector<int>>& f2);
+double calcCorrelationSum(int i, int j, unordered_map<int, vector<string>>& labelVectorMap, unordered_map<int, unordered_map<string, vector<int>>>& labelFreqMap, int64_t sigma);
 
-template<typename T, typename U>
-string getVisitedKey(T& v1, U& v2);
+double contribute(int field_type1, int field_type2, const string& v1, const string& v2, double p_xy, double p_x, double p_y, double threshold);
+
+string getVisitedKey(const string& v1, const string& v2);
 
 #endif
